@@ -310,9 +310,8 @@
                     <button class="btn" id="btn-undo" onclick="undoCanvas()">↩️ Undo</button>
                     <button class="btn" id="btn-clear" onclick="clearCanvas()">🧹 Clear</button>
                     <button class="btn" id="btn-save" onclick="saveArt()">💾 Save PNG</button>
-                    <button class="btn primary" id="btn-compose" onclick="startArtPlayhead()">▶ Scan & Rate</button>
+                    <button class="btn primary" id="btn-compose" onclick="startArtPlayhead()">▶ Play Art</button>
                     <button class="btn toggled-on" id="btn-music" onclick="togglePlayheadMusic()">🎼 Playhead Music: ON</button>
-                    <button class="btn toggled-on" id="btn-voice" onclick="toggleVoiceRater()">🗣️ Critic: ON</button>
                     <button class="btn" id="btn-restart" onclick="restartCurrentGame()">🔄 Restart</button>
                 </div>
                 <div class="btn-group">
@@ -330,7 +329,7 @@
                 <div class="g-card" id="gc-palm">
                     <div class="g-icon">🖐️</div>
                     <div class="g-title">Open Palm</div>
-                    <div class="g-sub">Critic Roast / Praise</div>
+                    <div class="g-sub">Playhead Scan</div>
                 </div>
                 <div class="g-card" id="gc-pinch">
                     <div class="g-icon">👌</div>
@@ -429,9 +428,8 @@
         let currentStrokePoints = [];
         let drawnStrokes = [];
         let activePulse = null;
-        let recentCriticLines = [];
 
-        // Sweeping Playhead Line state (scans drawing left -> right and plays music)
+        // Sweeping Playhead Line state (scans drawing left -> right at a relaxed tempo)
         let playhead = {
             active: false,
             x: 0,
@@ -439,31 +437,11 @@
         };
 
         let playheadMusicEnabled = true;
-        let voiceRaterEnabled = true;
 
         let undoList = [];
         let strokes = 0, notesPlayed = 0, score = 0;
         let cooldown = 0;
         let lastPianoIdx = -1;
-
-        // ==========================================
-        // 10 VOICE CRITIC LINES (5 ROAST + 5 PRAISE)
-        // ==========================================
-        const roastLines = [
-            "Five out of ten. Looks like a duck that got caught in a potato blender, still weirdly charming though.",
-            "Four out of ten. Honestly, my toaster could draw a cleaner line and it doesn't even have fingers.",
-            "Five out of ten. Bold move drawing a mystery blob. Even I can't tell what that's supposed to be.",
-            "Six out of ten. Your hand looked like it sneezed mid-air, but hey, confidence is doing all the work.",
-            "Four out of ten. Spikier than a porcupine in a bad mood. Dramatic, chaotic, mildly confusing."
-        ];
-
-        const praiseLines = [
-            "Nine out of ten! Okay okay, those lines actually slap. Serious main-character energy.",
-            "Eight out of ten! Super clean energy and zero fear. Straight onto the wall of fame.",
-            "Nine out of ten! Smooth curves and great flow. You might actually have a hidden talent here.",
-            "Eight out of ten! That tune and linework combo is dangerously good. Keep going!",
-            "Ten out of ten! Pure chaos turned into art. Crowd favorite right here."
-        ];
 
         // ==========================================
         // GAME INSTRUCTIONS DATA
@@ -633,25 +611,25 @@
         ];
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playMusicalNote(freq, dur = 0.36, type = "sine", vol = 0.22) {
+        function playMusicalNote(freq, dur = 0.55, type = "sine", vol = 0.2) {
             if (audioCtx.state === "suspended") audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.type = type;
             osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
             gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
-            gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + 0.02);
+            gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + 0.04);
             gain.gain.exponentialRampToValueAtTime(0.0008, audioCtx.currentTime + dur);
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
-            osc.stop(audioCtx.currentTime + dur + 0.02);
+            osc.stop(audioCtx.currentTime + dur + 0.03);
             notesPlayed++;
             document.getElementById("t-notes").innerText = notesPlayed;
         }
 
         // ==========================================
-        // PLAYHEAD SCANLINE -> MELODIC MUSIC ENGINE
+        // SLOW PLAYHEAD SCANLINE -> MELODIC MUSIC
         // ==========================================
         const artMusicNotes = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25, 783.99, 880.00];
 
@@ -665,10 +643,9 @@
         function updateAndDrawPlayhead() {
             if (!playhead.active) return;
 
-            // Sweep playhead line left-to-right across the 1280px canvas
-            playhead.x += 11;
+            // Slower sweep speed (4.5px per frame) so notes unfold at a calm, musical pace
+            playhead.x += 4.5;
 
-            // Draw vertical playhead scanline (matching the sweeping line in the reference)
             fxCtx.save();
             fxCtx.strokeStyle = "#fde047";
             fxCtx.lineWidth = 3.5;
@@ -679,15 +656,14 @@
             fxCtx.lineTo(playhead.x, 720);
             fxCtx.stroke();
 
-            // Top playhead handle
             fxCtx.fillStyle = "#fde047";
             fxCtx.beginPath();
             fxCtx.arc(playhead.x, 18, 9, 0, Math.PI * 2);
             fxCtx.fill();
             fxCtx.restore();
 
-            // Sample drawn pixels along a vertical slice every ~36px so musical notes play smoothly
-            const bucket = Math.floor(playhead.x / 36);
+            // Wider bucket spacing (64px) so notes are spaced out and unhurried
+            const bucket = Math.floor(playhead.x / 64);
             if (bucket !== playhead.lastSampleBucket && playheadMusicEnabled) {
                 playhead.lastSampleBucket = bucket;
                 const sampleX = Math.min(1279, Math.max(0, Math.floor(playhead.x)));
@@ -707,11 +683,8 @@
                     const avgY = weightedY / hitCount;
                     const heightRatio = Math.min(0.99, Math.max(0, 1 - avgY / 720));
                     const noteFreq = artMusicNotes[Math.floor(heightRatio * artMusicNotes.length)];
-                    playMusicalNote(noteFreq, 0.38, "sine", 0.22);
-                    if (hitCount > 6) {
-                        playMusicalNote(noteFreq * 1.5, 0.34, "triangle", 0.11);
-                    }
-                    activePulse = { x: sampleX, y: avgY, life: 14, tag: "♪" };
+                    playMusicalNote(noteFreq, 0.6, "sine", 0.2);
+                    activePulse = { x: sampleX, y: avgY, life: 16, tag: "♪" };
                 }
             }
 
@@ -733,43 +706,6 @@
             return { x: center.x, y: center.y, minX, maxX, width: maxX - minX, height: maxY - minY };
         }
 
-        function pickNaturalVoice() {
-            if (!("speechSynthesis" in window)) return null;
-            const voices = window.speechSynthesis.getVoices();
-            if (!voices || !voices.length) return null;
-
-            const preferred = voices.find(v =>
-                v.lang.startsWith("en") &&
-                /natural|google|samantha|aria|guy|sonia|zira|david|uk|india/i.test(v.name)
-            );
-            return preferred || voices.find(v => v.lang.startsWith("en")) || voices[0];
-        }
-
-        function pickCriticLine() {
-            const combined = [...roastLines, ...praiseLines];
-            const candidates = combined.filter(l => !recentCriticLines.includes(l));
-            const pool = candidates.length > 0 ? candidates : combined;
-            const chosen = pool[Math.floor(Math.random() * pool.length)];
-
-            recentCriticLines.push(chosen);
-            if (recentCriticLines.length > 3) recentCriticLines.shift();
-            return chosen;
-        }
-
-        function speakFunCritique() {
-            if (!voiceRaterEnabled || !("speechSynthesis" in window)) return;
-            window.speechSynthesis.cancel();
-
-            const line = pickCriticLine();
-            const utter = new SpeechSynthesisUtterance(line);
-            const chosenVoice = pickNaturalVoice();
-            if (chosenVoice) utter.voice = chosenVoice;
-            utter.rate = 0.95;
-            utter.pitch = 1.05;
-            window.speechSynthesis.speak(utter);
-            document.getElementById("hud-right").innerText = `🗣️ ${line}`;
-        }
-
         function finishCurrentStroke() {
             if (currentStrokePoints.length > 0) {
                 const info = analyzeSingleStroke(currentStrokePoints);
@@ -779,7 +715,7 @@
                     if (playheadMusicEnabled) {
                         const scanStart = Math.max(0, info.minX - 20);
                         triggerPlayheadScan(scanStart);
-                        document.getElementById("hud-right").innerText = "🎼 Playhead sweeping your drawing into music!";
+                        document.getElementById("hud-right").innerText = "🎼 Playhead sweeping your art slowly...";
                     }
                 }
             }
@@ -803,7 +739,7 @@
             osc.stop(audioCtx.currentTime + 0.12);
 
             if (isHeadshot) {
-                setTimeout(() => playMusicalNote(1318.5, 0.2, "sine", 0.22), 35);
+                setTimeout(() => playMusicalNote(1318.5, 0.25, "sine", 0.22), 35);
             }
             notesPlayed++;
             document.getElementById("t-notes").innerText = notesPlayed;
@@ -832,9 +768,6 @@
         }
 
         async function init() {
-            if ("speechSynthesis" in window) {
-                window.speechSynthesis.getVoices();
-            }
             const vision = await FilesetResolver.forVisionTasks(
                 "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
             );
@@ -948,8 +881,8 @@
                 const p = activePulse;
                 fxCtx.save();
                 fxCtx.beginPath();
-                fxCtx.arc(p.x, p.y, (16 - p.life) * 3, 0, Math.PI * 2);
-                fxCtx.strokeStyle = `rgba(253, 224, 71, ${p.life / 15})`;
+                fxCtx.arc(p.x, p.y, (17 - p.life) * 3, 0, Math.PI * 2);
+                fxCtx.strokeStyle = `rgba(253, 224, 71, ${p.life / 16})`;
                 fxCtx.lineWidth = 4;
                 fxCtx.stroke();
                 fxCtx.fillStyle = "#fde047";
@@ -983,7 +916,7 @@
         function handleCanvas(g, x, y, lm) {
             const hudR = document.getElementById("hud-right");
             if (g === "index") {
-                hudR.innerText = "✏️ Drawing... lift finger to hear your art play!";
+                hudR.innerText = "✏️ Drawing... lift finger for slow music!";
                 if (px === null) {
                     pushUndo();
                     strokes++;
@@ -1004,9 +937,10 @@
                 }
             }
 
-            if (g === "palm" && cooldown === 0 && drawnStrokes.length > 0) {
-                cooldown = 65;
-                speakFunCritique();
+            if (g === "palm" && cooldown === 0 && !playhead.active && playheadMusicEnabled) {
+                cooldown = 60;
+                triggerPlayheadScan(0);
+                hudR.innerText = "🎼 Playhead sweeping across your art...";
                 ring(x, y, "#94a3b8", 16);
             } else if (g === "fist") {
                 hudR.innerText = "✊ Magic Eraser";
@@ -1406,13 +1340,13 @@
                 cs.reloading--;
                 if (cs.reloading === 0) {
                     cs.ammo = cs.maxAmmo;
-                    playMusicalNote(523.25, 0.14, "sine", 0.18);
+                    playMusicalNote(523.25, 0.2, "sine", 0.18);
                 }
             } else if ((g === "fist" || cs.ammo === 0) && cs.ammo < cs.maxAmmo) {
                 cs.reloading = 42;
                 cs.killFeed = "🔄 RELOADING MAGAZINE...";
                 cs.killFeedTimer = 42;
-                playMusicalNote(220, 0.16, "triangle", 0.18);
+                playMusicalNote(220, 0.2, "triangle", 0.18);
             }
 
             csSpawnTimer++;
@@ -1440,7 +1374,7 @@
                     b.shootCooldown = Math.max(55, 110 - cs.wave * 6);
                     cs.hp = Math.max(0, cs.hp - 12);
                     cs.damageFlash = 10;
-                    playMusicalNote(130, 0.16, "sawtooth", 0.18);
+                    playMusicalNote(130, 0.2, "sawtooth", 0.18);
                     if (cs.hp === 0) cs.gameOver = true;
                 }
 
@@ -1671,11 +1605,11 @@
 
                 if (y < 240 && runner.jumpTimer === 0 && runner.slideTimer === 0) {
                     runner.jumpTimer = 30;
-                    playMusicalNote(523.25, 0.18, "sine", 0.2);
+                    playMusicalNote(523.25, 0.22, "sine", 0.2);
                 }
                 if ((g === "fist" || y > 540) && runner.slideTimer === 0 && runner.jumpTimer === 0) {
                     runner.slideTimer = 30;
-                    playMusicalNote(246.94, 0.18, "triangle", 0.2);
+                    playMusicalNote(246.94, 0.22, "triangle", 0.2);
                 }
             }
 
@@ -1746,7 +1680,7 @@
                 if (obj.z >= 0.82 && obj.z <= 0.95 && obj.lane === runner.lane) {
                     if (obj.type === "coin" || obj.type === "gem") {
                         addScore(obj.type === "gem" ? 30 : 10);
-                        playMusicalNote(obj.type === "gem" ? 880 : 659.25, 0.18, "sine", 0.2);
+                        playMusicalNote(obj.type === "gem" ? 880 : 659.25, 0.2, "sine", 0.2);
                         trackObjects.splice(i, 1);
                         continue;
                     } else if (obj.type === "block" && runner.jumpTimer === 0) {
@@ -1791,292 +1725,3 @@
                 const pt = slashTrail[i];
                 fxCtx.beginPath();
                 fxCtx.arc(pt.x, pt.y, pt.life * 1.6, 0, Math.PI * 2);
-                fxCtx.fillStyle = `rgba(34, 211, 238, ${pt.life / 14})`;
-                fxCtx.fill();
-                pt.life--;
-                if (pt.life <= 0) slashTrail.splice(i, 1);
-            }
-
-            for (let i = slashItems.length - 1; i >= 0; i--) {
-                const it = slashItems[i];
-                it.x += it.vx; it.y += it.vy; it.vy += 0.32;
-
-                if (x !== null && y !== null && !it.sliced && Math.hypot(x - it.x, y - it.y) < it.r + 22) {
-                    it.sliced = true;
-                    if (it.bomb) {
-                        slashCombo = 0; addScore(it.pts); playMusicalNote(120, 0.25, "sawtooth", 0.22);
-                    } else {
-                        slashCombo++; addScore(it.pts + Math.min(20, slashCombo * 2));
-                        playMusicalNote(587.33 + slashCombo * 25, 0.2, "triangle", 0.2);
-                    }
-                }
-
-                if (!it.sliced) {
-                    fxCtx.save();
-                    fxCtx.beginPath();
-                    fxCtx.arc(it.x, it.y, it.r, 0, Math.PI * 2);
-                    fxCtx.fillStyle = "rgba(15, 23, 42, 0.78)";
-                    fxCtx.fill();
-                    fxCtx.lineWidth = 4; fxCtx.strokeStyle = it.aura; fxCtx.stroke();
-                    fxCtx.font = "56px sans-serif";
-                    fxCtx.textAlign = "center"; fxCtx.textBaseline = "middle";
-                    fxCtx.fillText(it.icon, it.x, it.y + 2);
-                    fxCtx.restore();
-                }
-
-                if (it.y > 790 || it.sliced) slashItems.splice(i, 1);
-            }
-        }
-
-        // ==========================================
-        // TURBO BRICK BREAKER
-        // ==========================================
-        function runBrickBreaker(x) {
-            drawStageScoreBanner("BREAKER SCORE");
-            if (x !== null) {
-                paddle.x = Math.min(1280 - paddle.w - 40, Math.max(40, x - paddle.w / 2));
-            }
-
-            ball.x += ball.vx;
-            ball.y += ball.vy;
-
-            if (ball.x - ball.r < 40 || ball.x + ball.r > 1240) ball.vx *= -1;
-            if (ball.y - ball.r < 40) ball.vy *= -1;
-            if (ball.y + ball.r > 700) {
-                ball.x = 640; ball.y = 520; ball.vx = 10.5; ball.vy = -10.5;
-            }
-
-            if (
-                ball.y + ball.r >= paddle.y &&
-                ball.y - ball.r <= paddle.y + paddle.h &&
-                ball.x >= paddle.x &&
-                ball.x <= paddle.x + paddle.w &&
-                ball.vy > 0
-            ) {
-                ball.vy = -Math.abs(ball.vy);
-                const hitOffset = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
-                ball.vx = hitOffset * 11.5;
-                playMusicalNote(360, 0.14, "sine", 0.2);
-            }
-
-            let aliveCount = 0;
-            for (const b of bricks) {
-                if (!b.alive) continue;
-                aliveCount++;
-                if (
-                    ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w &&
-                    ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h
-                ) {
-                    b.alive = false;
-                    ball.vy *= -1;
-                    addScore(25);
-                    playMusicalNote(587.33, 0.16, "triangle", 0.2);
-                    break;
-                }
-            }
-            if (aliveCount === 0) initBricks();
-
-            for (const b of bricks) {
-                if (!b.alive) continue;
-                fxCtx.fillStyle = b.col;
-                fxCtx.beginPath(); fxCtx.roundRect(b.x, b.y, b.w, b.h, 8); fxCtx.fill();
-            }
-            fxCtx.fillStyle = "#22d3ee";
-            fxCtx.beginPath(); fxCtx.roundRect(paddle.x, paddle.y, paddle.w, paddle.h, 10); fxCtx.fill();
-
-            fxCtx.beginPath(); fxCtx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-            fxCtx.fillStyle = "#fde047"; fxCtx.fill();
-        }
-
-        // ==========================================
-        // NEON CATCHER & MUSICAL PIANO
-        // ==========================================
-        function stepNeonCatcher(x, y) {
-            pointerEl.style.display = "none";
-            drawStageScoreBanner("CATCHER SCORE");
-            document.getElementById("hud-right").innerText = "🌟 Move hand to catch stars & gems!";
-
-            if (x !== null) {
-                catcherBasket.x = Math.min(1280 - catcherBasket.w - 40, Math.max(40, x - catcherBasket.w / 2));
-                ring(x, y, "#fde047", 12);
-            }
-
-            dropTimer++;
-            if (dropTimer % 34 === 0) {
-                const pool = [
-                    { icon: "⭐", pts: 15, col: "#facc15", bad: false },
-                    { icon: "💎", pts: 30, col: "#38bdf8", bad: false },
-                    { icon: "⚡", pts: 20, col: "#a855f7", bad: false },
-                    { icon: "☄️", pts: -15, col: "#ef4444", bad: true }
-                ];
-                const pick = pool[Math.floor(Math.random() * pool.length)];
-                fallingDrops.push({
-                    x: Math.random() * 1060 + 110, y: 40,
-                    vy: Math.random() * 3.5 + 5.5, r: 36, ...pick
-                });
-            }
-
-            for (let i = fallingDrops.length - 1; i >= 0; i--) {
-                const d = fallingDrops[i];
-                d.y += d.vy;
-
-                fxCtx.beginPath();
-                fxCtx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-                fxCtx.fillStyle = "rgba(15, 23, 42, 0.82)";
-                fxCtx.fill();
-                fxCtx.lineWidth = 3; fxCtx.strokeStyle = d.col; fxCtx.stroke();
-
-                fxCtx.font = "42px sans-serif";
-                fxCtx.textAlign = "center"; fxCtx.textBaseline = "middle";
-                fxCtx.fillText(d.icon, d.x, d.y + 2);
-
-                const caught =
-                    d.y + d.r >= catcherBasket.y &&
-                    d.y - d.r <= catcherBasket.y + catcherBasket.h &&
-                    d.x >= catcherBasket.x &&
-                    d.x <= catcherBasket.x + catcherBasket.w;
-
-                if (caught) {
-                    addScore(d.pts);
-                    playMusicalNote(d.bad ? 140 : 659.25, 0.22, d.bad ? "sawtooth" : "triangle", 0.2);
-                    fallingDrops.splice(i, 1);
-                    continue;
-                }
-
-                if (d.y > 760) fallingDrops.splice(i, 1);
-            }
-
-            fxCtx.fillStyle = "#ec4899";
-            fxCtx.beginPath();
-            fxCtx.roundRect(catcherBasket.x, catcherBasket.y, catcherBasket.w, catcherBasket.h, 14);
-            fxCtx.fill();
-            fxCtx.strokeStyle = "#ffffff"; fxCtx.lineWidth = 3; fxCtx.stroke();
-        }
-
-        function drawPiano() {
-            const startX = 150, w = 140, topY = 440, h = 230;
-            pianoKeys.forEach((k, i) => {
-                const kx = startX + i * w;
-                const hit = lastPianoIdx === i;
-                fxCtx.fillStyle = hit ? "#ffffff" : k.c;
-                fxCtx.beginPath(); fxCtx.roundRect(kx, hit ? topY + 10 : topY, w - 10, h, 14); fxCtx.fill();
-                fxCtx.lineWidth = 3.5; fxCtx.strokeStyle = "#fff"; fxCtx.stroke();
-                fxCtx.fillStyle = hit ? "#0f172a" : "#fff";
-                fxCtx.font = "900 24px sans-serif"; fxCtx.textAlign = "center";
-                fxCtx.fillText(k.n, kx + (w - 10) / 2, topY + h - 22);
-            });
-        }
-
-        function handlePiano(x, y) {
-            ring(x, y, "#fde047", 12);
-            const startX = 150, w = 140, topY = 440, h = 230;
-            let hit = -1;
-            if (y >= topY && y <= topY + h) {
-                const idx = Math.floor((x - startX) / w);
-                if (idx >= 0 && idx < pianoKeys.length) hit = idx;
-            }
-            if (hit !== -1 && hit !== lastPianoIdx) {
-                playMusicalNote(pianoKeys[hit].f, 0.42, "triangle", 0.22);
-                document.getElementById("hud-right").innerText = `🎵 Note ${pianoKeys[hit].n}`;
-            }
-            lastPianoIdx = hit;
-        }
-
-        window.setMode = (m) => {
-            if (currentStrokePoints.length > 0) finishCurrentStroke();
-            mode = m;
-            if (m !== "mouse") document.getElementById("game-guide-modal").classList.remove("show");
-            document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-            document.getElementById("tab-" + m).classList.add("active");
-            document.getElementById("t-mode").innerText = m.charAt(0).toUpperCase() + m.slice(1);
-            document.getElementById("swatch-bar").style.display = m === "canvas" ? "flex" : "none";
-        };
-
-        window.selectMouseGame = (g) => {
-            mouseGame = g;
-            setMode("mouse");
-            document.querySelectorAll(".game-grid .btn").forEach(b => b.classList.remove("active-game"));
-            document.getElementById("gm-" + g).classList.add("active-game");
-            const names = { cs: "Counter-Strike", runner: "Temple Run", slash: "Fruit Slash", breaker: "Brick Breaker" };
-            document.getElementById("game-badge").innerText = names[g];
-            restartCurrentGame();
-            showGameGuide(g);
-        };
-
-        window.restartCurrentGame = () => {
-            resetCsGame();
-            runner = {
-                lane: 1, visualLane: 1, jumpTimer: 0, slideTimer: 0,
-                distance: 0, speed: 0.015, scrollOffset: 0, runCycle: 0,
-                gameOver: false, crashReason: ""
-            };
-            trackObjects = [];
-            slashItems = [];
-            slashCombo = 0;
-            fallingDrops = [];
-            ball = { x: 640, y: 520, vx: 10.5, vy: -10.5, r: 15 };
-            initBricks();
-        };
-
-        window.pickColor = (hex, name, el) => {
-            color = hex; colorName = name;
-            document.querySelectorAll(".swatch").forEach(s => s.classList.remove("active"));
-            if (el) el.classList.add("active");
-            document.getElementById("hud-left").innerText = `🖌️ ${brush.toUpperCase()} • ${colorName}`;
-        };
-
-        window.setBrush = (b) => {
-            brush = b;
-            document.querySelectorAll(".brush-btn").forEach(btn => btn.classList.remove("active"));
-            document.getElementById("br-" + b).classList.add("active");
-            document.getElementById("hud-left").innerText = `🖌️ ${brush.toUpperCase()} • ${colorName}`;
-        };
-
-        window.undoCanvas = () => {
-            if (undoList.length > 0) {
-                artCtx.putImageData(undoList.pop(), 0, 0);
-                drawnStrokes.pop();
-            }
-        };
-
-        window.clearCanvas = () => {
-            pushUndo();
-            artCtx.clearRect(0, 0, artCanvas.width, artCanvas.height);
-            drawnStrokes = [];
-            currentStrokePoints = [];
-            playhead.active = false;
-        };
-
-        window.saveArt = () => {
-            const a = document.createElement("a");
-            a.download = "AetherPlay_Creation.png";
-            a.href = artCanvas.toDataURL(); a.click();
-        };
-
-        window.startArtPlayhead = () => {
-            triggerPlayheadScan(0);
-            speakFunCritique();
-        };
-
-        window.togglePlayheadMusic = () => {
-            playheadMusicEnabled = !playheadMusicEnabled;
-            const btn = document.getElementById("btn-music");
-            btn.innerText = playheadMusicEnabled ? "🎼 Playhead Music: ON" : "🎼 Playhead Music: OFF";
-            btn.classList.toggle("toggled-on", playheadMusicEnabled);
-            if (!playheadMusicEnabled) playhead.active = false;
-        };
-
-        window.toggleVoiceRater = () => {
-            voiceRaterEnabled = !voiceRaterEnabled;
-            const btn = document.getElementById("btn-voice");
-            btn.innerText = voiceRaterEnabled ? "🗣️ Critic: ON" : "🗣️ Critic: OFF";
-            btn.classList.toggle("toggled-on", voiceRaterEnabled);
-            if (!voiceRaterEnabled && "speechSynthesis" in window) window.speechSynthesis.cancel();
-        };
-
-        window.toggleTheme = () => document.body.classList.toggle("dark-mode");
-
-        init();
-    </script>
-</body>
-</html>
